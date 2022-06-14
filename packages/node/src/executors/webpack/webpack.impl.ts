@@ -17,7 +17,7 @@ import { register } from 'ts-node';
 import { getNodeWebpackConfig } from '../../utils/node.config';
 import { BuildNodeBuilderOptions } from '../../utils/types';
 import { normalizeBuildOptions } from '../../utils/normalize';
-import { generatePackageJson } from '../../utils/generate-package-json';
+import { deleteOutputDir } from '../../utils/fs';
 import { runWebpack } from '../../utils/run-webpack';
 
 export type NodeBuildEvent = {
@@ -78,9 +78,11 @@ export async function* webpackExecutor(
     }
   }
 
-  if (options.generatePackageJson) {
-    generatePackageJson(context.projectName, projGraph, options);
+  // Delete output path before bundling
+  if (options.deleteOutputPath) {
+    deleteOutputDir(context.root, options.outputPath);
   }
+
   const config = await options.webpackConfig.reduce(
     async (currentConfig, plugin) => {
       return require(plugin)(await currentConfig, {
@@ -88,7 +90,7 @@ export async function* webpackExecutor(
         configuration: context.configurationName,
       });
     },
-    Promise.resolve(getNodeWebpackConfig(options))
+    Promise.resolve(getNodeWebpackConfig(context, projGraph, options))
   );
 
   return yield* eachValueFrom(

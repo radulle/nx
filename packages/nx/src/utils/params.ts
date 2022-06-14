@@ -2,7 +2,7 @@ import { logger } from './logger';
 import { NxJsonConfiguration } from '../config/nx-json';
 import {
   TargetConfiguration,
-  WorkspaceJsonConfiguration,
+  ProjectsConfigurations,
 } from '../config/workspace-json-project-json';
 
 type PropertyDescription = {
@@ -26,7 +26,10 @@ type PropertyDescription = {
     | string[]
     | { [key: string]: string | number | boolean | string[] };
   $ref?: string;
-  $default?: { $source: 'argv'; index: number } | { $source: 'projectName' };
+  $default?:
+    | { $source: 'argv'; index: number }
+    | { $source: 'projectName' }
+    | { $source: 'unparsed' };
   additionalProperties?: boolean;
   'x-prompt'?:
     | string
@@ -72,6 +75,8 @@ export async function handleErrors(isVerbose: boolean, fn: Function) {
   try {
     return await fn();
   } catch (err) {
+    err ??= new Error('Unknown error caught');
+
     if (err.constructor.name === 'UnsuccessfulWorkflowExecution') {
       logger.error('The generator workflow failed. See above.');
     } else if (err.message) {
@@ -96,11 +101,17 @@ function camelCase(input: string): string {
   }
 }
 
-export function convertToCamelCase(parsed: { [k: string]: any }): Options {
-  return Object.keys(parsed).reduce(
-    (m, c) => ({ ...m, [camelCase(c)]: parsed[c] }),
-    {}
-  );
+export function convertToCamelCase(
+  parsed: { [k: string]: any },
+  schema: Schema
+): Options {
+  return Object.keys(parsed).reduce((m, c) => {
+    if (schema.properties[camelCase(c)]) {
+      return { ...m, [camelCase(c)]: parsed[c] };
+    } else {
+      return { ...m, [c]: parsed[c] };
+    }
+  }, {});
 }
 
 /**
@@ -520,7 +531,7 @@ export function combineOptionsForExecutor(
   isVerbose = false
 ) {
   const r = convertAliases(
-    coerceTypesInOptions(commandLineOpts, schema),
+    coerceTypesInOptions(convertToCamelCase(commandLineOpts, schema), schema),
     schema,
     false
   );
@@ -533,7 +544,6 @@ export function combineOptionsForExecutor(
   convertSmartDefaultsIntoNamedParams(
     combined,
     schema,
-    (commandLineOpts['_'] as string[]) || [],
     defaultProjectName,
     relativeCwd
   );
@@ -548,7 +558,7 @@ export async function combineOptionsForGenerator(
   commandLineOpts: Options,
   collectionName: string,
   generatorName: string,
-  wc: (WorkspaceJsonConfiguration & NxJsonConfiguration) | null,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null,
   schema: Schema,
   isInteractive: boolean,
   defaultProjectName: string | null,
@@ -571,7 +581,6 @@ export async function combineOptionsForGenerator(
   convertSmartDefaultsIntoNamedParams(
     combined,
     schema,
-    (commandLineOpts['_'] as string[]) || [],
     defaultProjectName,
     relativeCwd
   );
@@ -607,10 +616,11 @@ export function warnDeprecations(
 export function convertSmartDefaultsIntoNamedParams(
   opts: { [k: string]: any },
   schema: Schema,
-  argv: string[],
   defaultProjectName: string | null,
   relativeCwd: string | null
 ) {
+  const argv = opts['_'] || [];
+  const usedPositionalArgs = {};
   Object.entries(schema.properties).forEach(([k, v]) => {
     if (
       opts[k] === undefined &&
@@ -618,7 +628,10 @@ export function convertSmartDefaultsIntoNamedParams(
       v.$default.$source === 'argv' &&
       argv[v.$default.index]
     ) {
+      usedPositionalArgs[v.$default.index] = true;
       opts[k] = coerceType(v, argv[v.$default.index]);
+    } else if (v.$default !== undefined && v.$default.$source === 'unparsed') {
+      opts[k] = opts['__overrides_unparsed__'];
     } else if (
       opts[k] === undefined &&
       v.$default !== undefined &&
@@ -635,12 +648,23 @@ export function convertSmartDefaultsIntoNamedParams(
       opts[k] = relativeCwd.replace(/\\/g, '/');
     }
   });
-  delete opts['_'];
+  const leftOverPositionalArgs = [];
+  for (let i = 0; i < argv.length; ++i) {
+    if (!usedPositionalArgs[i]) {
+      leftOverPositionalArgs.push(argv[i]);
+    }
+  }
+  if (leftOverPositionalArgs.length === 0) {
+    delete opts['_'];
+  } else {
+    opts['_'] = leftOverPositionalArgs;
+  }
+  delete opts['__overrides_unparsed__'];
 }
 
 function getGeneratorDefaults(
   projectName: string | null,
-  wc: (WorkspaceJsonConfiguration & NxJsonConfiguration) | null,
+  wc: (ProjectsConfigurations & NxJsonConfiguration) | null,
   collectionName: string,
   generatorName: string
 ) {
@@ -742,26 +766,6 @@ async function promptForValues(opts: Options, schema: Schema) {
     });
 }
 
-/**
- * Tries to find what the user meant by unmatched commands
- *
- * @param opts The options passed in by the user
- * @param schema The schema definition to check against
- *
- */
-export function lookupUnmatched(opts: Options, schema: Schema): Options {
-  if (opts['--']) {
-    const props = Object.keys(schema.properties);
-
-    opts['--'].forEach((unmatched) => {
-      unmatched.possible = props.filter(
-        (p) => levenshtein(p, unmatched.name) < 3
-      );
-    });
-  }
-  return opts;
-}
-
 function findSchemaForProperty(
   propName: string,
   schema: Schema
@@ -782,37 +786,6 @@ function findSchemaForProperty(
     return { name, description };
   }
   return null;
-}
-
-function levenshtein(a: string, b: string) {
-  if (a.length == 0) {
-    return b.length;
-  }
-  if (b.length == 0) {
-    return a.length;
-  }
-  const matrix = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) == a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
 }
 
 function isTTY(): boolean {

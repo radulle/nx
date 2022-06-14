@@ -1,18 +1,68 @@
 import type { Schema } from './schema';
-import { Workspaces } from '@nrwl/devkit';
+import {
+  ProjectConfiguration,
+  readAllWorkspaceConfiguration,
+} from '@nrwl/devkit';
 import { scheduleTarget } from 'nx/src/adapter/ngcli-adapter';
 import { BuilderContext, createBuilder } from '@angular-devkit/architect';
 import { JsonObject } from '@angular-devkit/core';
 import { join } from 'path';
-import { webpackServer } from '../webpack-server/webpack-server.impl';
+import { executeWebpackServerBuilder } from '../webpack-server/webpack-server.impl';
+import { existsSync, readFileSync } from 'fs';
 
-export function moduleFederationDevServer(
+function getDynamicRemotesIfExists(
+  context: BuilderContext,
+  p: ProjectConfiguration
+) {
+  // check for dynamic remotes
+  // we should only check for dynamic based on what we generate
+  // and fallback to empty array
+
+  const standardPathToGeneratedMFManifestJson = join(
+    context.workspaceRoot,
+    p.sourceRoot,
+    'assets/module-federation.manifest.json'
+  );
+  if (!existsSync(standardPathToGeneratedMFManifestJson)) {
+    return [];
+  }
+
+  const moduleFederationManifestJson = readFileSync(
+    standardPathToGeneratedMFManifestJson,
+    'utf-8'
+  );
+
+  if (moduleFederationManifestJson) {
+    // This should have shape of
+    // {
+    //   "remoteName": "remoteLocation",
+    // }
+    const parsedManifest = JSON.parse(moduleFederationManifestJson);
+    if (
+      !Object.keys(parsedManifest).every(
+        (key) =>
+          typeof key === 'string' && typeof parsedManifest[key] === 'string'
+      )
+    ) {
+      return [];
+    }
+
+    return Object.entries(parsedManifest).reduce(
+      (remotesArray, [remoteName, remoteLocation]) => [
+        ...remotesArray,
+        [remoteName, remoteLocation],
+      ],
+      []
+    );
+  }
+  return [];
+}
+
+export function executeModuleFederationDevServerBuilder(
   schema: Schema,
   context: BuilderContext
 ) {
-  const workspaces = new Workspaces(context.workspaceRoot);
-  const workspaceConfig = workspaces.readWorkspaceConfiguration();
-
+  const workspaceConfig = readAllWorkspaceConfiguration();
   const p = workspaceConfig.projects[context.target.project];
 
   const mfConfigPath = join(
@@ -31,7 +81,11 @@ export function moduleFederationDevServer(
   }
 
   const { ...options } = schema;
-  const unparsedRemotes = mfeConfig.remotes.length > 0 ? mfeConfig.remotes : [];
+
+  let unparsedRemotes = mfeConfig.remotes.length > 0 ? mfeConfig.remotes : [];
+  const dynamicRemotes = getDynamicRemotesIfExists(context, p);
+  unparsedRemotes = [...unparsedRemotes, ...dynamicRemotes];
+
   const remotes = unparsedRemotes.map((a) => (Array.isArray(a) ? a[0] : a));
 
   const devServeRemotes = !options.devRemotes
@@ -40,14 +94,9 @@ export function moduleFederationDevServer(
     ? options.devRemotes
     : [options.devRemotes];
 
-  const remotePorts: number[] = [];
   for (const remote of remotes) {
     const isDev = devServeRemotes.includes(remote);
     const target = isDev ? 'serve' : 'serve-static';
-
-    remotePorts.push(
-      workspaceConfig.projects[remote]?.targets[target]?.options.port ?? 4200
-    );
 
     scheduleTarget(
       context.workspaceRoot,
@@ -59,10 +108,18 @@ export function moduleFederationDevServer(
         executor: context.builder.builderName,
       },
       options.verbose
-    );
+    ).then((obs) => {
+      obs.toPromise().catch((err) => {
+        throw new Error(
+          `Remote '${remote}' failed to serve correctly due to the following: \r\n${err.toString()}`
+        );
+      });
+    });
   }
 
-  return webpackServer(options, context);
+  return executeWebpackServerBuilder(options, context);
 }
 
-export default createBuilder<JsonObject & Schema>(moduleFederationDevServer);
+export default createBuilder<JsonObject & Schema>(
+  executeModuleFederationDevServerBuilder
+);

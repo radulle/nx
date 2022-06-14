@@ -8,6 +8,7 @@
     {
       "name": "Overview",
       "id": "overview",
+      "path": "/packages/angular",
       "file": "shared/angular-plugin",
       "content": "![Angular logo](/shared/angular-logo.png)\n\nThe Nx Plugin for Angular contains executors, generators, and utilities for managing Angular applications and libraries within an Nx workspace. It provides:\n\n- Integration with libraries such as Storybook, Jest, Cypress, Karma, and Protractor.\n- Generators to help scaffold code quickly, including:\n  - Micro Frontends\n  - Libraries, both internal to your codebase and publishable to npm\n  - Upgrading AngularJS applications\n  - Single Component Application Modules (SCAMs)\n- NgRx helpers.\n- Utilities for automatic workspace refactoring.\n\n## Setting up the Angular plugin\n\nAdding the Angular plugin to an existing Nx workspace can be done with the following:\n\n```bash\nyarn add -D @nrwl/angular\n```\n\n```bash\nnpm install -D @nrwl/angular\n```\n\n## Using the Angular Plugin\n\n### Generating an application\n\nIt's straightforward to generate an Angular application:\n\n```bash\nnx g @nrwl/angular:app appName\n```\n\nBy default, the application will be generated with:\n\n- ESLint as the linter.\n- Jest as the unit test runner.\n- Cypress as the E2E test runner.\n\nWe can then serve, build, test, lint, and run e2e tests on the application with the following commands:\n\n```bash\nnx serve appName\nnx build appName\nnx test appName\nnx lint appName\nnx e2e appName\n```\n\n### Generating a library\n\nGenerating an Angular library is very similar to generating an application:\n\n```bash\nnx g @nrwl/angular:lib libName\n```\n\nBy default, the library will be generated with:\n\n- ESLint as the linter.\n- Jest as the unit test runner.\n\nWe can then test and lint the library with the following commands:\n\n```bash\nnx test libName\nnx lint libName\n```\n\nRead more about:\n\n- [Creating Libraries](/structure/creating-libraries)\n- [Library Types](/structure/library-types)\n- [Buildable and Publishable Libraries](/structure/buildable-and-publishable-libraries)\n\n## More Documentation\n\n- [Angular Nx Tutorial](/angular-tutorial/01-create-application)\n- [Setup Module Federation with Angular and Nx](/module-federation/faster-builds)\n- [Using NgRx](/guides/misc-ngrx)\n- [Using DataPersistence](/guides/misc-data-persistence)\n- [Upgrading an AngularJS application to Angular](/guides/misc-upgrade)\n- [Using Tailwind CSS with Angular projects](/guides/using-tailwind-css-with-angular-projects)\n"
     }
@@ -155,6 +156,11 @@
             "default": false,
             "description": "Do not add dependencies to `package.json`."
           },
+          "skipPostInstall": {
+            "type": "boolean",
+            "default": false,
+            "description": "Do not add or append `ngcc` to the `postinstall` script in `package.json`."
+          },
           "unitTestRunner": {
             "type": "string",
             "enum": ["karma", "jest", "none"],
@@ -293,6 +299,11 @@
             "default": false,
             "alias": "t"
           },
+          "standalone": {
+            "description": "Whether the generated component is standalone.",
+            "type": "boolean",
+            "default": false
+          },
           "viewEncapsulation": {
             "description": "The view encapsulation strategy to use in the new component.",
             "enum": ["Emulated", "None", "ShadowDom"],
@@ -349,7 +360,7 @@
           },
           "export": {
             "type": "boolean",
-            "description": "Specifies if the component should be exported in the declaring `NgModule`. Additionally, if the project is a library, the component will be exported from the project's entry point (normally `index.ts`).",
+            "description": "Specifies if the component should be exported in the declaring `NgModule`. Additionally, if the project is a library, the component will be exported from the project's entry point (normally `index.ts`) if the module it belongs to is also exported or if the component is standalone.",
             "default": false
           }
         },
@@ -636,6 +647,11 @@
             "type": "boolean",
             "default": false,
             "description": "Do not add dependencies to `package.json`."
+          },
+          "skipPostInstall": {
+            "type": "boolean",
+            "default": false,
+            "description": "Do not add or append `ngcc` to the `postinstall` script in `package.json`."
           }
         },
         "additionalProperties": false,
@@ -768,6 +784,11 @@
             "type": "boolean",
             "default": false,
             "description": "Do not add dependencies to `package.json`."
+          },
+          "skipPostInstall": {
+            "type": "boolean",
+            "default": false,
+            "description": "Do not add or append `ngcc` to the `postinstall` script in `package.json`."
           },
           "skipTsConfig": {
             "type": "boolean",
@@ -1217,6 +1238,11 @@
             "default": false,
             "description": "Do not add dependencies to `package.json`."
           },
+          "skipPostInstall": {
+            "type": "boolean",
+            "default": false,
+            "description": "Do not add or append `ngcc` to the `postinstall` script in `package.json`."
+          },
           "unitTestRunner": {
             "type": "string",
             "enum": ["karma", "jest", "none"],
@@ -1341,6 +1367,11 @@
             "type": "boolean",
             "default": false,
             "description": "Do not add dependencies to `package.json`. NOTE: only used if running the generator in an Nx workspace."
+          },
+          "skipPostInstall": {
+            "type": "boolean",
+            "default": false,
+            "description": "Do not add or append `ngcc` to the `postinstall` script in `package.json`. NOTE: only used if running the generator in an Nx workspace."
           }
         },
         "additionalProperties": false,
@@ -1747,6 +1778,10 @@
           "e2eProjectName": {
             "type": "string",
             "description": "The project name of the associated E2E project for the application. This is only required for Cypress E2E projects that do not follow the naming convention `<appName>-e2e`."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "The prefix to use for any generated component."
           }
         },
         "required": ["appName", "mfeType"],
@@ -1886,9 +1921,10 @@
             "enum": ["eslint", "none"],
             "default": "eslint"
           },
-          "projectBuildConfig": {
-            "description": "Provide a custom projectBuildConfig for the Angular executor. If left blank, Nx will use the default.",
-            "type": "string"
+          "tsConfiguration": {
+            "type": "boolean",
+            "description": "Configure your project with TypeScript. Generate main.ts and preview.ts files, instead of main.js and preview.js.",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -2002,6 +2038,27 @@
       "aliases": [],
       "hidden": false,
       "path": "/packages/angular/src/generators/web-worker/schema.json"
+    },
+    {
+      "name": "change-storybook-targets",
+      "factory": "./src/generators/change-storybook-targets/change-storybook-targets",
+      "schema": {
+        "$schema": "http://json-schema.org/schema",
+        "$id": "NxAngularChangeStorybookTargetsGenerator",
+        "title": "Change Storybook targets",
+        "description": "Change the Storybook target executors.",
+        "type": "object",
+        "cli": "nx",
+        "properties": {},
+        "additionalProperties": false,
+        "required": [],
+        "presets": []
+      },
+      "description": "Change storybook targets for Angular projects to use @storybook/angular executors",
+      "implementation": "/packages/angular/src/generators/change-storybook-targets/change-storybook-targets.ts",
+      "aliases": [],
+      "hidden": false,
+      "path": "/packages/angular/src/generators/change-storybook-targets/schema.json"
     }
   ],
   "executors": [
@@ -2253,7 +2310,8 @@
                   "properties": {
                     "input": {
                       "type": "string",
-                      "description": "The file to include."
+                      "description": "The file to include.",
+                      "pattern": "\\.[cm]?jsx?$"
                     },
                     "bundleName": {
                       "type": "string",
@@ -2269,7 +2327,11 @@
                   "additionalProperties": false,
                   "required": ["input"]
                 },
-                { "type": "string", "description": "The file to include." }
+                {
+                  "type": "string",
+                  "description": "The file to include.",
+                  "pattern": "\\.[cm]?jsx?$"
+                }
               ]
             }
           },
@@ -2284,7 +2346,8 @@
                   "properties": {
                     "input": {
                       "type": "string",
-                      "description": "The file to include."
+                      "description": "The file to include.",
+                      "pattern": "\\.(?:css|scss|sass|less|styl)$"
                     },
                     "bundleName": {
                       "type": "string",
@@ -2300,7 +2363,11 @@
                   "additionalProperties": false,
                   "required": ["input"]
                 },
-                { "type": "string", "description": "The file to include." }
+                {
+                  "type": "string",
+                  "description": "The file to include.",
+                  "pattern": "\\.(?:css|scss|sass|less|styl)$"
+                }
               ]
             }
           },
@@ -2555,15 +2622,9 @@
             "description": "Extract all licenses in a separate file.",
             "default": true
           },
-          "showCircularDependencies": {
-            "type": "boolean",
-            "description": "Show circular dependency warnings on builds.",
-            "default": false,
-            "x-deprecated": "The recommended method to detect circular dependencies in project code is to use either a lint rule or other external tooling."
-          },
           "buildOptimizer": {
             "type": "boolean",
-            "description": "Enables '@angular-devkit/build-optimizer' optimizations when using the 'aot' option.",
+            "description": "Enables advanced build optimizations when using the 'aot' option.",
             "default": true
           },
           "namedChunks": {
@@ -2776,32 +2837,6 @@
                 "additionalProperties": false,
                 "required": ["replace", "with"]
               }
-            ]
-          },
-          "extraEntryPoint": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string",
-                    "description": "The file to include."
-                  },
-                  "bundleName": {
-                    "type": "string",
-                    "pattern": "^[\\w\\-.]*$",
-                    "description": "The bundle name for this extra entry point."
-                  },
-                  "inject": {
-                    "type": "boolean",
-                    "description": "If the bundle will be referenced in the HTML file.",
-                    "default": true
-                  }
-                },
-                "additionalProperties": false,
-                "required": ["input"]
-              },
-              { "type": "string", "description": "The file to include." }
             ]
           },
           "budget": {

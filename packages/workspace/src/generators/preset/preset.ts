@@ -33,11 +33,7 @@ export const presetSchematic = convertNxGenerator(presetGenerator);
 export default presetGenerator;
 
 async function createPreset(tree: Tree, options: Schema) {
-  if (
-    options.preset === Preset.Empty ||
-    options.preset === Preset.Apps ||
-    options.preset === Preset.TS
-  ) {
+  if (options.preset === Preset.Empty || options.preset === Preset.Apps) {
     return;
   } else if (options.preset === Preset.Angular) {
     const {
@@ -50,7 +46,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/angular');
   } else if (options.preset === Preset.React) {
     const {
       applicationGenerator: reactApplicationGenerator,
@@ -62,7 +57,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/react');
   } else if (options.preset === Preset.NextJs) {
     const { applicationGenerator: nextApplicationGenerator } = require('@nrwl' +
       '/next');
@@ -73,7 +67,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/next');
   } else if (options.preset === Preset.WebComponents) {
     const { applicationGenerator: webApplicationGenerator } = require('@nrwl' +
       '/web');
@@ -96,7 +89,6 @@ async function createPreset(tree: Tree, options: Schema) {
       `apps/${names(options.name).fileName}/src/polyfills.ts`,
       ['@ungap/custom-elements']
     );
-    setDefaultCollection(tree, '@nrwl/web');
   } else if (options.preset === Preset.AngularWithNest) {
     const {
       applicationGenerator: angularApplicationGenerator,
@@ -123,7 +115,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/angular');
     connectAngularAndNest(tree, options);
   } else if (options.preset === Preset.ReactWithExpress) {
     const {
@@ -151,7 +142,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/react');
     connectReactAndExpress(tree, options);
   } else if (options.preset === Preset.Nest) {
     const { applicationGenerator: nestApplicationGenerator } = require('@nrwl' +
@@ -161,7 +151,6 @@ async function createPreset(tree: Tree, options: Schema) {
       name: options.name,
       linter: options.linter,
     });
-    setDefaultCollection(tree, '@nrwl/nest');
   } else if (options.preset === Preset.Express) {
     const {
       applicationGenerator: expressApplicationGenerator,
@@ -171,7 +160,6 @@ async function createPreset(tree: Tree, options: Schema) {
       linter: options.linter,
       standaloneConfig: options.standaloneConfig,
     });
-    setDefaultCollection(tree, '@nrwl/express');
   } else if (options.preset === 'react-native') {
     const { reactNativeApplicationGenerator } = require('@nrwl' +
       '/react-native');
@@ -181,12 +169,18 @@ async function createPreset(tree: Tree, options: Schema) {
       standaloneConfig: options.standaloneConfig,
       e2eTestRunner: 'detox',
     });
-    setDefaultCollection(tree, '@nrwl/react-native');
   } else if (options.preset === Preset.Core || options.preset === Preset.NPM) {
     setupPackageManagerWorkspaces(tree, options);
     if (options.preset === Preset.Core) {
       tree.delete('workspace.json');
     }
+  } else if (options.preset === Preset.TS) {
+    const c = readWorkspaceConfiguration(tree);
+    c.workspaceLayout = {
+      appsDir: 'packages',
+      libsDir: 'packages',
+    };
+    updateWorkspaceConfiguration(tree, c);
   } else {
     throw new Error(`Invalid preset ${options.preset}`);
   }
@@ -396,17 +390,6 @@ const server = app.listen(port, () => {
 server.on('error', console.error);
     `
   );
-}
-
-function setDefaultCollection(tree: Tree, defaultCollection: string) {
-  const workspaceConfiguration = readWorkspaceConfiguration(tree);
-  updateWorkspaceConfiguration(tree, {
-    ...workspaceConfiguration,
-    cli: {
-      ...(workspaceConfiguration.cli || {}),
-      defaultCollection,
-    },
-  });
 }
 
 function addPolyfills(host: Tree, polyfillsPath: string, polyfills: string[]) {

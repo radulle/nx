@@ -10,7 +10,13 @@ import { Footer, Header } from '@nrwl/nx-dev/ui-common';
 import cx from 'classnames';
 import Router from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
-import { documentsApi, menuApi, packagesApi } from '../lib/api';
+import {
+  nxCloudDocumentsApi,
+  nxCloudMenuApi,
+  nxDocumentsApi,
+  nxMenuApi,
+  packagesApi,
+} from '../lib/api';
 
 interface DocumentationPageProps {
   menu: Menu;
@@ -143,6 +149,14 @@ export async function getStaticProps({
 }: {
   params: { segments: string[] };
 }) {
+  // Set Document and Menu apis
+  let documentsApi = nxDocumentsApi;
+  let menuApi = nxMenuApi;
+  if (params.segments[0] === 'nx-cloud') {
+    documentsApi = nxCloudDocumentsApi;
+    menuApi = nxCloudMenuApi;
+  }
+
   const menu = menuApi.getMenu();
 
   if (params.segments[0] === 'packages') {
@@ -170,7 +184,7 @@ export async function getStaticProps({
       return {
         props: {
           document: null,
-          menu: menuApi.getMenu(),
+          menu: nxMenuApi.getMenu(),
           pkg,
           schemaRequest: null,
         },
@@ -180,7 +194,7 @@ export async function getStaticProps({
     return {
       props: {
         document: null,
-        menu: menuApi.getMenu(),
+        menu: nxMenuApi.getMenu(),
         pkg,
         schemaRequest: {
           type: params.segments[2],
@@ -220,7 +234,8 @@ export async function getStaticPaths() {
   return {
     paths: [
       ...packagesApi.getStaticPackagePaths(),
-      ...documentsApi.getStaticDocumentPaths(),
+      ...nxDocumentsApi.getStaticDocumentPaths(),
+      ...nxCloudDocumentsApi.getStaticDocumentPaths(),
     ],
     fallback: 'blocking',
   };

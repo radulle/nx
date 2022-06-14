@@ -63,6 +63,22 @@ Type: boolean
 
 Show help
 
+### nx-bail
+
+Type: boolean
+
+Default: false
+
+Stop command execution after the first failed task
+
+### nx-ignore-cycles
+
+Type: boolean
+
+Default: false
+
+Ignore cycles in the task graph
+
 ### ~~only-failed~~
 
 Type: boolean
@@ -77,7 +93,7 @@ Only run the target on projects which previously failed
 
 Type: string
 
-Choices: [dynamic, static, stream]
+Choices: [dynamic, static, stream, stream-without-prefixes]
 
 Defines how Nx emits outputs tasks logs
 

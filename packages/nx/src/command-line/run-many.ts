@@ -9,21 +9,38 @@ import { performance } from 'perf_hooks';
 import { ProjectGraph, ProjectGraphProjectNode } from '../config/project-graph';
 import { createProjectGraphAsync } from '../project-graph/project-graph';
 import { readEnvironment } from './read-environment';
+import { TargetDependencyConfig } from '../config/workspace-json-project-json';
 
-export async function runMany(parsedArgs: yargs.Arguments & RawNxArgs) {
+export async function runMany(
+  args: { [k: string]: any },
+  extraTargetDependencies: Record<
+    string,
+    (TargetDependencyConfig | string)[]
+  > = {}
+) {
   performance.mark('command-execution-begins');
+  const env = readEnvironment();
   const { nxArgs, overrides } = splitArgsIntoNxArgsAndOverrides(
-    parsedArgs,
-    'run-many'
+    args,
+    'run-many',
+    { printWarnings: true },
+    env.nxJson
   );
 
   await connectToNxCloudUsingScan(nxArgs.scan);
 
   const projectGraph = await createProjectGraphAsync();
   const projects = projectsToRun(nxArgs, projectGraph);
-  const env = readEnvironment();
 
-  await runCommand(projects, projectGraph, env, nxArgs, overrides, null);
+  await runCommand(
+    projects,
+    projectGraph,
+    env,
+    nxArgs,
+    overrides,
+    null,
+    extraTargetDependencies
+  );
 }
 
 function projectsToRun(
@@ -33,12 +50,14 @@ function projectsToRun(
   const allProjects = Object.values(projectGraph.nodes);
   const excludedProjects = new Set(nxArgs.exclude ?? []);
   if (nxArgs.all) {
-    return runnableForTarget(allProjects, nxArgs.target).filter(
+    const res = runnableForTarget(allProjects, nxArgs.target).filter(
       (proj) => !excludedProjects.has(proj.name)
     );
+    res.sort((a, b) => a.name.localeCompare(b.name));
+    return res;
   }
   checkForInvalidProjects(nxArgs, allProjects);
-  let selectedProjects = nxArgs.projects.map((name) =>
+  const selectedProjects = nxArgs.projects.map((name) =>
     allProjects.find((project) => project.name === name)
   );
   return runnableForTarget(selectedProjects, nxArgs.target, true).filter(

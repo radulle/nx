@@ -1,14 +1,12 @@
 import * as yargsParser from 'yargs-parser';
 import * as yargs from 'yargs';
-import {
-  readNxJson,
-  readWorkspaceJson,
-  TEN_MEGABYTES,
-} from '../project-graph/file-utils';
+import { TEN_MEGABYTES } from '../project-graph/file-utils';
 import { output } from './output';
-import { NxAffectedConfig } from '../config/nx-json';
+import { NxJsonConfiguration } from '../config/nx-json';
 import { execSync } from 'child_process';
+import { readAllWorkspaceConfiguration } from '../config/configuration';
 
+//
 export function names(name: string): {
   name: string;
   className: string;
@@ -74,14 +72,16 @@ const runOne: string[] = [
   'prod',
   'runner',
   'parallel',
-  'max-parallel',
+  'maxParallel',
   'exclude',
-  'only-failed',
+  'onlyFailed',
   'help',
-  'with-deps',
-  'skip-nx-cache',
+  'withDeps',
+  'skipNxCache',
   'scan',
-  'output-style',
+  'outputStyle',
+  'nxBail',
+  'nxIgnoreCycles',
 ];
 
 const runMany: string[] = [...runOne, 'projects', 'all'];
@@ -96,6 +96,7 @@ const runAffected: string[] = [
   'files',
   'plain',
   'select',
+  'type',
 ];
 
 export interface RawNxArgs extends NxArgs {
@@ -115,52 +116,90 @@ export interface NxArgs {
   exclude?: string[];
   files?: string[];
   onlyFailed?: boolean;
-  'only-failed'?: boolean;
   verbose?: boolean;
   help?: boolean;
   version?: boolean;
   plain?: boolean;
   withDeps?: boolean;
-  'with-deps'?: boolean;
   projects?: string[];
   select?: string;
   skipNxCache?: boolean;
-  'skip-nx-cache'?: boolean;
-  'output-style'?: string;
   outputStyle?: string;
   scan?: boolean;
+  nxBail?: boolean;
+  nxIgnoreCycles?: boolean;
+  type?: string;
 }
 
 const ignoreArgs = ['$0', '_'];
 
 export function splitArgsIntoNxArgsAndOverrides(
-  args: yargs.Arguments,
+  args: { [k: string]: any },
   mode: 'run-one' | 'run-many' | 'affected' | 'print-affected',
-  options = { printWarnings: true }
+  options = { printWarnings: true },
+  nxJson: NxJsonConfiguration
 ): { nxArgs: NxArgs; overrides: yargs.Arguments } {
+  if (!args.__overrides__ && args._) {
+    // required for backwards compatibility
+    args.__overrides__ = args._;
+    delete args._;
+  }
+
   const nxSpecific =
     mode === 'run-one' ? runOne : mode === 'run-many' ? runMany : runAffected;
 
+  let explicitOverrides;
+  if (args.__overrides__) {
+    explicitOverrides = yargsParser(args.__overrides__ as string[], {
+      configuration: {
+        'camel-case-expansion': false,
+        'dot-notation': false,
+      },
+    });
+    if (!explicitOverrides._ || explicitOverrides._.length === 0) {
+      delete explicitOverrides._;
+    }
+  }
+  const overridesFromMainArgs = {} as any;
+  if (
+    args['__positional_overrides__'] &&
+    args['__positional_overrides__'].length > 0
+  ) {
+    overridesFromMainArgs['_'] = args['__positional_overrides__'];
+  }
   const nxArgs: RawNxArgs = {};
-  const overrides = yargsParser(args._ as string[], {
-    configuration: {
-      'strip-dashed': true,
-      'dot-notation': false,
-    },
-  });
-  // This removes the overrides from the nxArgs._
-  args._ = overrides._;
-
-  delete overrides._;
-
   Object.entries(args).forEach(([key, value]) => {
-    const dasherized = names(key).fileName;
-    if (nxSpecific.includes(dasherized) || dasherized.startsWith('nx-')) {
-      if (value !== undefined) nxArgs[key] = value;
-    } else if (!ignoreArgs.includes(key)) {
-      overrides[key] = value;
+    const camelCased = names(key).propertyName;
+    if (nxSpecific.includes(camelCased) || camelCased.startsWith('nx')) {
+      if (value !== undefined) nxArgs[camelCased] = value;
+    } else if (
+      !ignoreArgs.includes(key) &&
+      key !== '__positional_overrides__' &&
+      key !== '__overrides__'
+    ) {
+      overridesFromMainArgs[key] = value;
     }
   });
+
+  let overrides;
+  if (explicitOverrides) {
+    overrides = explicitOverrides;
+    overrides['__overrides_unparsed__'] = args.__overrides__;
+    if (Object.keys(overridesFromMainArgs).length > 0) {
+      const s = Object.keys(overridesFromMainArgs).join(', ');
+      output.warn({
+        title: `Nx didn't recognize the following args: ${s}`,
+        bodyLines: [
+          "When using '--' all executor args have to be defined after '--'.",
+        ],
+      });
+    }
+  } else {
+    overrides = overridesFromMainArgs;
+    overrides['__overrides_unparsed__'] = serializeArgsIntoCommandLine(
+      overridesFromMainArgs
+    );
+  }
 
   if (mode === 'run-many') {
     if (!nxArgs.projects) {
@@ -207,10 +246,12 @@ export function splitArgsIntoNxArgsAndOverrides(
       !nxArgs.base &&
       !nxArgs.head &&
       !nxArgs.all &&
-      args._.length >= 3
+      overridesFromMainArgs._ &&
+      overridesFromMainArgs._.length >= 2
     ) {
-      nxArgs.base = args._[1] as string;
-      nxArgs.head = args._[2] as string;
+      throw new Error(
+        `Nx no longer supports using positional arguments for base and head. Please use --base and --head instead.`
+      );
     }
 
     // Allow setting base and head via environment variables (lower priority then direct command arguments)
@@ -236,8 +277,7 @@ export function splitArgsIntoNxArgsAndOverrides(
     }
 
     if (!nxArgs.base) {
-      const affectedConfig = getAffectedConfig();
-      nxArgs.base = affectedConfig.defaultBase;
+      nxArgs.base = nxJson.affected?.defaultBase || 'main';
 
       // No user-provided arguments to set the affected criteria, so inform the user of the defaults being used
       if (
@@ -278,14 +318,6 @@ export function splitArgsIntoNxArgsAndOverrides(
   return { nxArgs, overrides } as any;
 }
 
-export function getAffectedConfig(): NxAffectedConfig {
-  const config = readNxJson();
-
-  return {
-    defaultBase: config.affected?.defaultBase || 'main',
-  };
-}
-
 export function parseFiles(options: NxArgs): { files: string[] } {
   const { files, uncommitted, untracked, base, head } = options;
 
@@ -322,6 +354,8 @@ function getUncommittedFiles(): string[] {
   return parseGitOutput(`git diff --name-only --relative HEAD .`);
 }
 
+``;
+
 function getUntrackedFiles(): string[] {
   return parseGitOutput(`git ls-files --others --exclude-standard`);
 }
@@ -355,6 +389,22 @@ function parseGitOutput(command: string): string[] {
 }
 
 export function getProjectRoots(projectNames: string[]): string[] {
-  const { projects } = readWorkspaceJson();
+  const { projects } = readAllWorkspaceConfiguration();
   return projectNames.map((name) => projects[name].root);
+}
+
+export function serializeArgsIntoCommandLine(args: {
+  [k: string]: any;
+}): string[] {
+  const r = args['_'] ? [...args['_']] : [];
+  Object.keys(args).forEach((a) => {
+    if (a !== '_') {
+      r.push(
+        typeof args[a] === 'string' && args[a].includes(' ')
+          ? `--${a}="${args[a].replace(/"/g, '"')}"`
+          : `--${a}=${args[a]}`
+      );
+    }
+  });
+  return r;
 }

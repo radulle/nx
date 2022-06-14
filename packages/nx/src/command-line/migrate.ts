@@ -20,6 +20,8 @@ import {
   NxMigrationsConfiguration,
   PackageGroup,
   PackageJson,
+  readNxMigrateConfig,
+  readModulePackageJson,
 } from '../utils/package-json';
 import {
   createTempNpmDirectory,
@@ -466,10 +468,8 @@ function versions(root: string, from: Record<string, string>) {
       }
 
       if (!cache[packageName]) {
-        const packageJsonPath = require.resolve(`${packageName}/package.json`, {
-          paths: [root],
-        });
-        cache[packageName] = readJsonFile(packageJsonPath).version;
+        const { packageJson } = readModulePackageJson(packageName, [root]);
+        cache[packageName] = packageJson.version;
       }
 
       return cache[packageName];
@@ -593,33 +593,6 @@ async function getPackageMigrationsUsingRegistry(
   );
 }
 
-function resolveNxMigrationConfig(json: Partial<PackageJson>) {
-  const parseNxMigrationsConfig = (
-    fromJson?: string | NxMigrationsConfiguration
-  ): NxMigrationsConfiguration => {
-    if (!fromJson) {
-      return {};
-    }
-    if (typeof fromJson === 'string') {
-      return { migrations: fromJson, packageGroup: [] };
-    }
-
-    return {
-      ...(fromJson.migrations ? { migrations: fromJson.migrations } : {}),
-      ...(fromJson.packageGroup ? { packageGroup: fromJson.packageGroup } : {}),
-    };
-  };
-
-  const config: NxMigrationsConfiguration = {
-    ...parseNxMigrationsConfig(json['ng-update']),
-    ...parseNxMigrationsConfig(json['nx-migrations']),
-    // In case there's a `migrations` field in `package.json`
-    ...parseNxMigrationsConfig(json as any),
-  };
-
-  return config;
-}
-
 async function getPackageMigrationsConfigFromRegistry(
   packageName: string,
   packageVersion: string
@@ -634,7 +607,7 @@ async function getPackageMigrationsConfigFromRegistry(
     return null;
   }
 
-  return resolveNxMigrationConfig(JSON.parse(result));
+  return readNxMigrateConfig(JSON.parse(result));
 }
 
 async function downloadPackageMigrationsFromRegistry(
@@ -713,11 +686,11 @@ function readPackageMigrationConfig(
   packageName: string,
   dir: string
 ): PackageMigrationConfig {
-  const packageJsonPath = require.resolve(`${packageName}/package.json`, {
-    paths: [dir],
-  });
+  const { path: packageJsonPath, packageJson: json } = readModulePackageJson(
+    packageName,
+    [dir]
+  );
 
-  const json = readJsonFile<PackageJson>(packageJsonPath);
   const migrationConfigOrFile = json['nx-migrations'] || json['ng-update'];
 
   if (!migrationConfigOrFile) {
@@ -804,6 +777,15 @@ async function isMigratingToNewMajor(from: string, to: string) {
   return major(from) < major(to);
 }
 
+function readNxVersion(packageJson: PackageJson) {
+  return (
+    packageJson?.devDependencies?.['nx'] ??
+    packageJson?.dependencies?.['nx'] ??
+    packageJson?.devDependencies?.['@nrwl/workspace'] ??
+    packageJson?.dependencies?.['@nrwl/workspace']
+  );
+}
+
 async function generateMigrationsJsonAndUpdatePackageJson(
   root: string,
   opts: {
@@ -818,20 +800,25 @@ async function generateMigrationsJsonAndUpdatePackageJson(
     let originalPackageJson = readJsonFile<PackageJson>(
       join(root, 'package.json')
     );
-    if (
-      ['nx', '@nrwl/workspace'].includes(opts.targetPackage) &&
-      (await isMigratingToNewMajor(
-        originalPackageJson.devDependencies?.['nx'] ??
-          originalPackageJson.devDependencies?.['@nrwl/workspace'],
-        opts.targetVersion
-      ))
-    ) {
-      await connectToNxCloudCommand(
-        'We noticed you are migrating to a new major version, but are not taking advantage of Nx Cloud. Nx Cloud can make your CI up to 10 times faster. Learn more about it here: nx.app. Would you like to add it?'
-      );
-      originalPackageJson = readJsonFile<PackageJson>(
-        join(root, 'package.json')
-      );
+
+    try {
+      if (
+        ['nx', '@nrwl/workspace'].includes(opts.targetPackage) &&
+        (await isMigratingToNewMajor(
+          readNxVersion(originalPackageJson),
+          opts.targetVersion
+        ))
+      ) {
+        await connectToNxCloudCommand(
+          'We noticed you are migrating to a new major version, but are not taking advantage of Nx Cloud. Nx Cloud can make your CI up to 10 times faster. Learn more about it here: nx.app. Would you like to add it?'
+        );
+        originalPackageJson = readJsonFile<PackageJson>(
+          join(root, 'package.json')
+        );
+      }
+    } catch {
+      // The above code is to remind folks when updating to a new major and not currently using Nx cloud.
+      // If for some reason it fails, it shouldn't affect the overall migration process
     }
 
     logger.info(`Fetching meta data about packages.`);
@@ -927,6 +914,8 @@ async function runMigrations(
       (shouldCreateCommits ? ', with each applied in a dedicated commit' : '')
   );
 
+  const depsBeforeMigrations = getStringifiedPackageJsonDeps(root);
+
   const migrations: {
     package: string;
     name: string;
@@ -974,9 +963,22 @@ async function runMigrations(
     logger.info(`---------------------------------------------------------`);
   }
 
+  const depsAfterMigrations = getStringifiedPackageJsonDeps(root);
+  if (depsBeforeMigrations !== depsAfterMigrations) {
+    runInstall();
+  }
+
   logger.info(
     `NX Successfully finished running migrations from '${opts.runMigrations}'`
   );
+}
+
+function getStringifiedPackageJsonDeps(root: string): string {
+  const { dependencies, devDependencies } = readJsonFile<PackageJson>(
+    join(root, 'package.json')
+  );
+
+  return JSON.stringify([dependencies, devDependencies]);
 }
 
 function commitChangesIfAny(commitMessage: string): {
@@ -1038,6 +1040,12 @@ async function runNxMigration(root: string, packageName: string, name: string) {
 
   const collection = readJsonFile<MigrationsJson>(collectionPath);
   const g = collection.generators || collection.schematics;
+  if (!g[name]) {
+    const source = collection.generators ? 'generators' : 'schematics';
+    throw new Error(
+      `Unable to determine implementation path for "${collectionPath}:${name}" using collection.${source}`
+    );
+  }
   const implRelativePath = g[name].implementation || g[name].factory;
 
   let implPath: string;

@@ -134,8 +134,6 @@ const schemaUrls = {
   '/nx-plugin/plugin': '/packages/nx-plugin/generators/plugin',
   '/nx-plugin/schematic': '/packages/nx-plugin/generators/generator',
   '/nx-plugin/e2e': '/packages/nx-plugin/executors/e2e',
-  '/nx-devkit/index': '/packages/nx-devkit/index',
-  '/nx-devkit/ngcli_adapter': '/packages/nx-devkit/ngcli_adapter',
 };
 
 /**
@@ -153,6 +151,7 @@ const guideUrls = {
   '/guides/nextjs': '/next/overview',
   '/using-nx/nx-devkit': '/extending-nx/nx-devkit',
   '/structure/project-graph-plugins': '/extending-nx/project-graph-plugins',
+  '/guides/lerna-and-nx': '/migration/lerna-and-nx',
 };
 
 /**

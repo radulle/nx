@@ -112,13 +112,22 @@ export function Index(): ReactComponentElement<any> {
                 >
                   <NpxCreateNxWorkspace />
                 </div>
-                <div className="my-14 flex flex-wrap text-center sm:space-x-4">
+                <div className="my-14 flex flex-wrap space-y-4 text-center sm:space-y-0 sm:space-x-4">
                   <Link href="#getting-started">
                     <a
                       title="Start using Nx by creating a workspace"
                       className="text-blue-nx-base hover:text-blue-nx-dark w-full flex-none rounded-md border border-transparent bg-white py-3 px-6 text-lg font-semibold leading-6 transition hover:bg-gray-100 focus:ring-2 focus:ring-offset-2 focus:ring-offset-white sm:w-auto"
                     >
                       Create Nx Workspace
+                    </a>
+                  </Link>
+
+                  <Link href="/migration/lerna-and-nx">
+                    <a
+                      title="Integrate Nx and Lerna"
+                      className="text-blue-nx-base hover:text-blue-nx-dark w-full flex-none rounded-md border border-transparent bg-white py-3 px-6 text-lg font-semibold leading-6 transition hover:bg-gray-100 focus:ring-2 focus:ring-offset-2 focus:ring-offset-white sm:w-auto"
+                    >
+                      Nx & Lerna
                     </a>
                   </Link>
 
